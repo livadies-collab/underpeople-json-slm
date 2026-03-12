@@ -25,3 +25,37 @@
     {"action": "Сдать отчет по серверу", "person": null, "deadline": "пятница"}
   ]
 }
+
+⚠️ Примечание: Данный репозиторий является Proof-of-Concept архитектуры. Текущий адаптер обучен на синтетическом микро-датасете. Для продакшена (чтобы избежать ИИ-галлюцинаций и путаницы в именах) требуется расширение датасета до 1000+ примеров.
+
+#### 3. Скрипт `inference.py` (Для локального запуска)
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+# Загружаем "Тело" Подчеловека (0.5B)
+base_model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+model = AutoModelForCausalLM.from_pretrained(
+    base_model_name, 
+    torch_dtype=torch.float16, 
+    device_map="auto"
+)
+
+# Надеваем "Ошейник" (Наш LoRA адаптер для JSON)
+# Укажите путь к сохраненной папке underpeople_lora
+model = PeftModel.from_pretrained(model, "underpeople_lora")
+
+def extract_json(messy_text):
+    prompt = f"""Ты — системный процесс для извлечения данных (Data Extractor). Твоя задача: прочитать неструктурированный текст и вернуть список задач СТРОГО в формате валидного JSON. Запрещено писать любые другие слова, приветствия или комментарии. Только JSON.\nТекст пользователя:\n{messy_text}\nJSON-результат:\n"""
+    
+    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    outputs = model.generate(**inputs, max_new_tokens=128)
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    return response.split("JSON-результат:\n")[1]
+
+# Тест
+text = "Купить хлеб и сказать Диме, чтобы выслал отчет завтра утром."
+print(extract_json(text))
